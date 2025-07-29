@@ -2,7 +2,7 @@
 本项目通过 C 代码演示了经典的“边界检查绕过”（Bounds Check Bypass）侧信道攻击原理，即 Spectre 漏洞。攻击者可利用 CPU 的分支预测和缓存时序侧信道，越界读取受害者内存中的敏感数据。
 
 ## 说明
-- 原项目地址-->
+- 原项目地址--> [SpectrePoc](https://github.com/crozone/SpectrePoC)
 - 演示如何通过分支预测误导 CPU，利用缓存命中时间推测 secret 字符串内容。
 - 支持多种缓解措施（如 Intel LFENCE、Linux nospec 掩码），可通过编译宏启用。
 - 可在 Windows（MSVC）和 Linux（gcc/clang）平台编译运行。
