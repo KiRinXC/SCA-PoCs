@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <x86intrin.h> /* 需要支持 rdtsc, rdtscp, clflush, mfence*/
 
 /********************************************************************
@@ -104,7 +105,7 @@ void readMemoryByte(int cache_hit_threshold, size_t malicious_x, uint8_t value[2
         }
         // 早停，可以加快破解密码速度
         if (results[j] >= (2 * results[k] + 5) || (results[j] == 2 && results[k] == 0))
-        break;
+            break;
     }
 
     value[0] = (uint8_t)j;
@@ -122,12 +123,9 @@ int main(int argc, const char **argv) {
     int score[2];
     uint8_t value[2];
     int i;
-
-    // 方便任意读取某段地址的任意长度
-    if (argc >= 4) {
-        sscanf(argv[2], "%p", (void **)&malicious_x);
-        malicious_x -= (size_t)array1;
-        sscanf(argv[3], "%d", &len);
+    
+    for (i = 0; i < (int)sizeof(array2); i++) {
+        array2[i] = 1; /* write to array2 so in RAM not copy-on-write zero pages */
     }
 
     printf("Using a cache hit threshold of %d.\n", cache_hit_threshold);
