@@ -7,12 +7,15 @@ unsigned int array_size = 16;
 
 void victim_function(size_t x) {
     volatile int sink = 0;
+    _mm_lfence(); // 确保所有内存操作完成
+    _mm_clflush(&array_size); // 确保 array_size 不在缓存中
+    _mm_clflush(&x); // 确保 x 不在缓存中
+    _mm_lfence(); // 确保所有内存操作完成
     if (x < array_size) {
         sink += 1;
     } else {
         sink += 2;
     }
-
 }
 
 void train_branch_predictor() {
@@ -78,7 +81,7 @@ void calculate_statistics(uint64_t *times, int count, uint64_t *min, uint64_t *m
 
 
 void main() {
-    int epochs = 16;
+    int epochs = 1;
     uint64_t diff_predict[epochs];
     uint64_t diff_mispredict[epochs];
     for (int i=0; i<epochs; i++)

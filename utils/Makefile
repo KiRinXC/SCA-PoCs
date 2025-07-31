@@ -5,7 +5,7 @@ CC = gcc
 CFLAGS = -O0 
 
 # Define the target executable name
-TARGET = cache_timing
+TARGET = test
 
 
 # Default target
