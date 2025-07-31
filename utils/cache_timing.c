@@ -61,7 +61,7 @@ int main() {
         temp = array[0];
         end_cycles = __rdtscp(&aux);   // End reading the timestamp
         _mm_lfence();
-        miss_times[i] = (end_cycles - start_cycles); // Record the time
+        miss_times[i] = end_cycles - start_cycles; // Record the time
     }
 
 
