@@ -2,10 +2,10 @@
 CC = gcc
 
 # Define compilation flags (e.g., disable optimization for precise timing tests)
-CFLAGS = -O0 
+CFLAGS = -Os 
 
 # Define the target executable name
-TARGET = test
+TARGET = tt
 
 
 # Default target

