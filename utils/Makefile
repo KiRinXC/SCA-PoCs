@@ -2,10 +2,10 @@
 CC = gcc
 
 # Define compilation flags (e.g., disable optimization for precise timing tests)
-CFLAGS = -Os 
+CFLAGS = -O0
 
 # Define the target executable name
-TARGET = tt
+TARGET = cache_attack
 
 
 # Default target
