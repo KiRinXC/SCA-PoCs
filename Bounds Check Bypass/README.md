@@ -7,6 +7,8 @@
     - [isec-tugraz/transientfail](https://github.com/isec-tugraz/transientfail)
 - 演示如何通过分支预测误导 CPU，利用缓存命中时间推测 secret 字符串内容。
 
+- 本项目对上述代码均有重构。
+
 ## 依赖环境
 - 支持 x86_64 指令集的处理器（建议 Intel 平台）
 - 推荐Linux系统（master-v1.c中的fork函数仅限Linux系统）
@@ -28,7 +30,9 @@ make clean     # 清理中间文件
 ./poc 100       # 手动设定阈值（推荐80~400之间尝试）
 ```
 ## 运行效果
-程序运行后会逐字节恢复被保护的 "秘密" 数据（例如字符串 "INACCESSIBLE SECRET" 或 "The Magic Words..."），输出内容中会显示成功恢复的字符、ASCII 值、命中次数等信息。
+程序运行后会逐字节恢复被保护的 "秘密" 数据（例如字符串 "INACCESSIBLE SECRET" 或 "The Magic Words..."）.
+
+多次实验结果证明，重构后的`crozone/SpectrePoC`代码比`isec-tugraz/transientfail`更容易成功(无论是Intel还是兆芯)。
 
 ### 针对 crozone/SpectrePoC
 ```TEXT

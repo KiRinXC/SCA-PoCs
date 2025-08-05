@@ -4,6 +4,7 @@
         "utility": "c",
         "stdlib.h": "c",
         "pthread.h": "c",
-        "cache_instr.h": "c"
+        "cache_instr.h": "c",
+        "stdint.h": "c"
     }
 }
