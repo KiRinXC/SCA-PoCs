@@ -23,7 +23,8 @@ char *secret = "The Magic Words are Squeamish Ossifrage.";
 // 恶意片段代码
 int volatile gadget(char *addr)
 {
-    return channel[*addr * GAP];
+    // return channel[*addr * GAP];
+    maccess(&channel[*addr * GAP]);
 }
 
 // 正常代码片段

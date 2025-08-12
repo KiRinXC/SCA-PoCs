@@ -5,6 +5,7 @@
         "stdlib.h": "c",
         "pthread.h": "c",
         "cache_instr.h": "c",
-        "stdint.h": "c"
+        "stdint.h": "c",
+        "limits": "c"
     }
 }
