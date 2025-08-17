@@ -7,6 +7,14 @@
         "cache_instr.h": "c",
         "stdint.h": "c",
         "limits": "c",
-        "x86intrin.h": "c"
+        "x86intrin.h": "c",
+        "compare": "c",
+        "cstdint": "c",
+        "format": "c",
+        "fcntl.h": "c",
+        "istream": "c",
+        "ostream": "c",
+        "ctype.h": "c",
+        "stdio.h": "c"
     }
 }
