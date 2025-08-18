@@ -30,7 +30,7 @@ run2: $(TARGET_V2)
 	./$(TARGET_V2)
 
 # 运行 v3
-run2: $(TARGET_V3)
+run3: $(TARGET_V3)
 	./$(TARGET_V3)
 
 # 清理生成的可执行文件
