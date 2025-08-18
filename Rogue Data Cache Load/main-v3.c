@@ -33,7 +33,6 @@ extern char stopspeculate[];
 static void __attribute__((noinline))
 speculate(unsigned long addr)
 {
-	volatile unsigned long temp = *addr;
 	__asm__ volatile(
 		"1:\n\t"
 
