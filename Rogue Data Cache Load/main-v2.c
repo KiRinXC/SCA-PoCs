@@ -18,6 +18,8 @@
 
 int cache_hit_threshold = 400;
 
+int flag =1;    //显示错误原因
+
 static char target_array[VARIANTS_READ * TARGET_SIZE];
 
 void clflush_target(void)
@@ -80,16 +82,31 @@ void check(void)
 void sigsegv(int sig, siginfo_t *siginfo, void *context)
 {
 	ucontext_t *ucontext = context;
-	ucontext->uc_mcontext.gregs[REG_RIP] = (unsigned long)stopspeculate;
+	if (flag){
+		unsigned long err = ucontext->uc_mcontext.gregs[REG_ERR];
+		const char *scode = (siginfo->si_code == SEGV_MAPERR) ? "MAPERR"
+						: (siginfo->si_code == SEGV_ACCERR) ? "ACCERR"
+														: "OTHER";
+		fprintf(stderr,
+			"[SEGV] addr=%p siginfo_code=%d(%s) PF_ERR=0x%lx  [P=%lu W/R=%lu U/S=%lu]\n",
+			siginfo->si_addr, siginfo->si_code, scode, err,
+			(err & 1UL), ((err >> 1) & 1UL), ((err >> 2) & 1UL));
+		fflush(stderr);
+		break;
+	}
+
+
+	ucontext->uc_mcontext.gregs[REG_RIP] = (greg_t)&stopspeculate;
 	return;
 }
 
-int set_signal(void)
+int set_signal()
 {
 	struct sigaction act = {
 		.sa_sigaction = sigsegv,
 		.sa_flags = SA_SIGINFO,
 	};
+
 
 	return sigaction(SIGSEGV, &act, NULL);
 }
@@ -168,7 +185,7 @@ int main(int argc, char *argv[])
 
     for (i = 0; i < size; i++)
     {
-        ret = ReadOneByte(fd,addr);
+        ret = ReadOneByte(addr);
         if (ret == -1)
             ret = 0xff;
         printf("read %lx = %x %c (score=%d/%d)\n",
