@@ -72,7 +72,6 @@ void sigsegv(int sig, siginfo_t *siginfo, void *context)
 				siginfo->si_addr, siginfo->si_code, scode, err,
 				(err & 1UL), ((err >> 1) & 1UL), ((err >> 2) & 1UL));
 		fflush(stderr);
-		exit(1);
 	}
 
 	ucontext->uc_mcontext.gregs[REG_RIP] = (greg_t)&stopspeculate;
@@ -89,7 +88,7 @@ int set_signal()
 	return sigaction(SIGSEGV, &act, NULL);
 }
 
-#define CYCLES 1000
+#define CYCLES 1
 int ReadOneByte(int fd, unsigned long addr)
 {
 	int i, ret = 0, max = -1, maxi = -1;
