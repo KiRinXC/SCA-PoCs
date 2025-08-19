@@ -1,3 +1,28 @@
+/* =============================================================================
+ * Meltdown PoC v2 — 瞬态取值流程验证（不解码）
+ *
+ * 功能概述
+ *   - 在用户态对指定的内核地址（hex_addr）执行一次会触发 SIGSEGV 的读取。
+ *   - 借异常架构化之前的“瞬态窗口”，用目标字节的值索引访问
+ *   - 确认触发的异常是页错误 #PF里哪一类——权限违规（protection violation）而不是页不存在（page-not-present）
+ *
+ * 用法
+ *   ./poc2 <hex_addr> <init_kernel_in_cache>
+ *     - hex_addr：目标内核虚拟地址（16进制，例如 ffffffff81a00060）
+ *     - init_kernel_in_cache：是否预加载内核相关路径到缓存（0=否，1=是）
+ *
+ * 典型输出及含义
+ *   Pre-loading......        // 当 init_kernel_in_cache=1 时的提示
+ *   或 No Pre-loading......  // 当 init_kernel_in_cache=0 时的提示
+ *
+ *   [SEGV] addr=0x... siginfo_code=...(MAPERR/ACCERR) PF_ERR=0xabc  [P=x W/R=y U/S=z]
+ *     - PF_ERR 位（x86 定义）：
+ *         P   : 1=页存在，0=页不存在
+ *         W/R : 1=写导致的异常，0=读导致的异常（本程序应为 0）
+ *         U/S : 1=用户态访问，0=内核态访问（本程序在用户态触发，应为 1）
+ *
+ */
+
 #define _GNU_SOURCE
 
 #include <stdio.h>
