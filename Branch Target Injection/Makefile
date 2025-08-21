@@ -4,7 +4,7 @@ SRC    = main.c
 
 # 使用 gcc，关闭优化并启用 C99
 CC      = gcc
-CFLAGS  = -std=c99 -O0
+CFLAGS  = -O0 -fno-pie -no-pie -std=gnu11 -Wall
 
 # 默认目标
 all: $(TARGET)
